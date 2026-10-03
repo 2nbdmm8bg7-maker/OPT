@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Base Damage Optimizer</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: Arial, Helvetica, sans-serif;
+    background: #0d0d0f;
+    color: #f4f4f4;
+    min-height: 100vh;
+    padding: 18px;
+  }
+  .wrap { max-width: 620px; margin: 0 auto; }
+  h1 { text-align: center; margin: 8px 0 18px; font-size: 28px; }
+  .card {
+    background: #18181c;
+    border: 1px solid #303038;
+    border-radius: 14px;
+    padding: 16px;
+    margin-bottom: 14px;
+  }
+  label { display:block; font-weight:700; margin: 10px 0 6px; }
+  input, select, button {
+    width: 100%;
+    border-radius: 10px;
+    border: 1px solid #3b3b45;
+    background: #101014;
+    color: #fff;
+    padding: 12px;
+    font-size: 16px;
+  }
+  input:focus, select:focus { outline: 2px solid #777; }
+  .row { display:grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .assist {
+    display:flex;
+    align-items:center;
+    gap:10px;
+    margin: 12px 0;
+    font-weight:700;
+  }
+  .assist input { width:auto; transform:scale(1.25); }
+  .result {
+    background:#0f0f13;
+    border-radius:12px;
+    padding:14px;
+    margin-top:12px;
+    border:1px solid #34343d;
+  }
+  .big { font-size: 25px; font-weight:800; word-break:break-word; }
+  .muted { color:#aaa; font-size:13px; }
+  button {
+    margin-top: 14px;
+    background:#f4f4f4;
+    color:#111;
+    border:none;
+    font-weight:800;
+    cursor:pointer;
+  }
+  button:active { transform:scale(.99); }
+  .error { color:#ff8d8d; margin-top:8px; font-size:14px; }
+  @media (max-width:520px) {
+    .row { grid-template-columns:1fr; }
+    body { padding:12px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Base Damage Optimizer</h1>
+
+  <div class="card">
+    <div class="row">
+      <div>
+        <label for="base">Base Amount</label>
+        <input id="base" type="number" inputmode="decimal" step="any" placeholder="10">
+      </div>
+      <div>
+        <label for="baseDamage">Damage from Base</label>
+        <input id="baseDamage" type="number" inputmode="decimal" step="any" placeholder="711.42">
+      </div>
+    </div>
+
+    <label for="target">Target Damage</label>
+    <input id="target" type="text" inputmode="decimal" placeholder="1.77BW">
+
+    <div class="assist">
+      <input id="assistEnabled" type="checkbox">
+      <span>Include Assist DMG</span>
+    </div>
+
+    <div id="assistBox" style="display:none">
+      <label for="assists">Number of Assists</label>
+      <input id="assists" type="number" inputmode="numeric" min="0" step="1" value="1">
+      <div class="muted">Each selected assist adds 700% (7×) of the base damage.</div>
+    </div>
+
+    <button id="calculate">Calculate Required Base</button>
+    <div id="error" class="error"></div>
+
+    <div class="result">
+      <div class="muted">Required Base</div>
+      <div id="answer" class="big">—</div>
+      <div id="details" class="muted"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="muted">
+      Alphabetical notation uses the standard thousand-based sequence:
+      K, M, B, T, Qa, Qi, Sx, Sp, Oc, No, Dc...
+    </div>
+  </div>
+</div>
+
+<script>
+const suffixes = [
+  "", "K", "M", "B", "T", "Qa", "Qi", "Sx", "Sp", "Oc", "No",
+  "Dc", "Ud", "Dd", "Td", "Qad", "Qid", "Sxd", "Spd", "Ocd", "Nod",
+  "Vg", "Uv", "Dv", "Tv", "Qav", "Qiv", "Sxv", "Spv", "Ocv", "Nov"
+];
+
+function parseNumber(value) {
+  const s = String(value).trim().replace(/,/g, "");
+  if (!s) return NaN;
+
+  const match = s.match(/^([+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+))(?:\\s*)([A-Za-z]+)?$/);
+  if (!match) return NaN;
+
+  const n = Number(match[1]);
+  if (!Number.isFinite(n)) return NaN;
+
+  if (!match[2]) return n;
+
+  const suffix = match[2].toLowerCase();
+  const names = {
+    k:1, m:2, b:3, t:4, qa:5, qi:6, sx:7, sp:8, oc:9, no:10,
+    dc:11, ud:12, dd:13, td:14, qad:15, qid:16, sxd:17, spd:18,
+    ocd:19, nod:20, vg:21, uv:22, dv:23, tv:24, qav:25, qiv:26,
+    sxv:27, spv:28, ocv:29, nov:30
+  };
+
+  return names[suffix] === undefined ? NaN : n * Math.pow(1000, names[suffix]);
+}
+
+function formatNumber(value) {
+  if (!Number.isFinite(value)) return "—";
+  const abs = Math.abs(value);
+  if (abs === 0) return "0";
+
+  let tier = Math.floor(Math.log10(abs) / 3);
+  tier = Math.max(0, Math.min(tier, suffixes.length - 1));
+
+  if (tier === 0) return Number(value.toFixed(6)).toString();
+
+  const scaled = value / Math.pow(1000, tier);
+  let digits = Math.abs(scaled) >= 100 ? 2 : Math.abs(scaled) >= 10 ? 3 : 4;
+  return scaled.toFixed(digits).replace(/\.?0+$/, "") + suffixes[tier];
+}
+
+function calculate() {
+  const error = document.getElementById("error");
+  const answer = document.getElementById("answer");
+  const details = document.getElementById("details");
+
+  error.textContent = "";
+  answer.textContent = "—";
+  details.textContent = "";
+
+  const base = parseNumber(document.getElementById("base").value);
+  const baseDamage = parseNumber(document.getElementById("baseDamage").value);
+  const target = parseNumber(document.getElementById("target").value);
+
+  if (!Number.isFinite(base) || base <= 0) {
+    error.textContent = "Enter a valid Base Amount.";
+    return;
+  }
+  if (!Number.isFinite(baseDamage) || baseDamage <= 0) {
+    error.textContent = "Enter a valid Damage from Base.";
+    return;
+  }
+  if (!Number.isFinite(target) || target <= 0) {
+    error.textContent = "Enter a valid Target Damage.";
+    return;
+  }
+
+  let multiplier = 1;
+  let assistCount = 0;
+
+  if (document.getElementById("assistEnabled").checked) {
+    assistCount = Math.max(0, Math.floor(Number(document.getElementById("assists").value) || 0));
+    multiplier += assistCount * 7;
+  }
+
+  const damagePerBase = (baseDamage / base) * multiplier;
+  const required = target / damagePerBase;
+
+  answer.textContent = formatNumber(required);
+
+  const assistText = assistCount > 0
+    ? ` Assist multiplier: ${multiplier}× (${assistCount} assist${assistCount === 1 ? "" : "s"}).`
+    : " Assist DMG not included.";
+
+  details.textContent =
+    `Damage per 1 base: ${formatNumber(damagePerBase)}.${assistText}`;
+}
+
+document.getElementById("assistEnabled").addEventListener("change", e => {
+  document.getElementById("assistBox").style.display = e.target.checked ? "block" : "none";
+});
+
+document.getElementById("calculate").addEventListener("click", calculate);
+
+document.querySelectorAll("input").forEach(el => {
+  el.addEventListener("keydown", e => {
+    if (e.key === "Enter") calculate();
+  });
+});
+</script>
+</body>
+</html>
